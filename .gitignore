@@ -1,0 +1,8 @@
+upi_transactions.csv
+*.csv
+*.pkl
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+.env
+node_modules/
