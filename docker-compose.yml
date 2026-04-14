@@ -17,6 +17,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - MODEL_PATH=/app/models/xgb_model.pkl
       - FEATURES_PATH=/app/models/feature_names.pkl
+      - LGBM_MODEL_PATH=/app/models/lgbm_model.pkl
+      - LGBM_THRESHOLD_PATH=/app/models/lgbm_threshold_config.json
     depends_on:
       - redis
     restart: unless-stopped

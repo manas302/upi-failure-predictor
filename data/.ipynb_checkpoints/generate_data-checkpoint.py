@@ -93,12 +93,20 @@ def get_amount_failure_boost(amount_bucket):
 
 def get_bank_health(bank, hour, is_salary_day):
     base_failure = BANKS[bank]
-    if hour >= 21 and hour <= 23:
-        base_failure += 0.08
+
+    # Add time-based stress
+    if 19 <= hour <= 22:
+        base_failure += 0.12
+    elif 9 <= hour <= 11:
+        base_failure += 0.06
     if is_salary_day:
-        base_failure += 0.05
+        base_failure += 0.08
+
+    # Add realistic random variation — this is the key change
+    base_failure += np.random.normal(0, 0.05)
+
     health = 1.0 - base_failure
-    health = round(min(max(health, 0.1), 1.0), 2)
+    health = round(float(np.clip(health, 0.20, 0.95)), 2)
     return health
 
 def get_failure_reason():
@@ -169,28 +177,56 @@ def generate_transaction():
     receiver_bank_health = get_bank_health(
         receiver_bank, hour, is_salary_day)
     
-    sender_recent_fail_rate = round(1 - sender_bank_health + 
-                                     random.uniform(-0.05, 0.05), 2)
-    sender_recent_fail_rate = min(max(sender_recent_fail_rate, 0), 1)
-    
-    receiver_recent_fail_rate = round(1 - receiver_bank_health + 
-                                       random.uniform(-0.05, 0.05), 2)
-    receiver_recent_fail_rate = min(max(receiver_recent_fail_rate, 0), 1)
+    # sender recent fail rate — independent signal, higher for weak banks
+    sender_base_fail = BANKS[sender_bank]
+    sender_recent_fail_rate = round(
+        np.clip(np.random.beta(
+            a=max(sender_base_fail * 10, 0.5),
+            b=max((1 - sender_base_fail) * 10, 0.5)
+        ) + random.uniform(-0.03, 0.03), 0, 1), 2
+    )
 
-    # --- failure probability ---
-    # --- failure probability ---
-    failure_prob = HOUR_FAILURE_RATES[hour] * 0.4
-    failure_prob += BANKS[sender_bank] * 0.15
-    failure_prob += NETWORK_FAILURE_RATES[network_type] * 0.10
-    failure_prob += get_amount_failure_boost(amount_bucket) * 0.5
-    failure_prob += (1 - sender_bank_health) * 0.10
-    if is_salary_day:
-        failure_prob += 0.01
-    if is_festival_day:
-        failure_prob += 0.01
+    # receiver recent fail rate — same logic
+    receiver_base_fail = BANKS[receiver_bank]
+    receiver_recent_fail_rate = round(
+        np.clip(np.random.beta(
+            a=max(receiver_base_fail * 10, 0.5),
+            b=max((1 - receiver_base_fail) * 10, 0.5)
+        ) + random.uniform(-0.03, 0.03), 0, 1), 2
+    )
+
+    # --- failure probability (stronger signal version) ---
+    failure_prob = 0.04  # base rate
+
+    # Bank health — strongest driver (range: 0 to 0.50)
+    failure_prob += (1 - sender_bank_health) * 0.50
+
+    # Recent fail rate — second strongest (range: 0 to 0.35)
+    failure_prob += sender_recent_fail_rate * 0.35
+
+    # Network type — clear hierarchy
+    network_boost = {'2G': 0.18, '3G': 0.10, '4G': 0.02, 'wifi': 0.00}
+    failure_prob += network_boost[network_type]
+
+    # High stress days
+    if is_festival_day == 1:
+        failure_prob += 0.15
+    if is_salary_day == 1:
+        failure_prob += 0.10
+
+    # Peak hours
+    if 9 <= hour <= 11 or 19 <= hour <= 22:
+        failure_prob += 0.08
+
+    # High value transactions
+    if amount > 10000:
+        failure_prob += 0.07
+
+    # Feature phone
     if device_type == 'feature_phone':
-        failure_prob += 0.02
-    failure_prob = min(max(failure_prob, 0), 1)
+        failure_prob += 0.05
+
+    failure_prob = min(max(failure_prob, 0), 0.95)
 
     # --- determine outcome ---
     is_failed = 1 if random.random() < failure_prob else 0
